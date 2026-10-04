@@ -8,10 +8,11 @@ _saludo_vector = None
 
 # Lista de saludos base para promediar o comparar (usaremos uno muy genérico)
 SALUDO_BASE = "hola como estas, todo bien?"
+DESPEDIDA_BASE = "chau adios nos vemos saludos gracias"
 
 def get_model():
     """Carga perezosa del modelo para no bloquear el inicio si no se usa."""
-    global _model, _saludo_vector
+    global _model, _saludo_vector, _despedida_vector
     if _model is None:
         try:
             from sentence_transformers import SentenceTransformer
@@ -19,6 +20,7 @@ def get_model():
             # Usamos un modelo súper liviano y rápido optimizado para similitud semántica multilingüe
             _model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
             _saludo_vector = _model.encode(SALUDO_BASE)
+            _despedida_vector = _model.encode(DESPEDIDA_BASE)
             logger.info("Modelo semántico cargado correctamente.")
         except ImportError:
             logger.error("sentence-transformers no está instalado. Ejecuta: pip install sentence-transformers")
@@ -53,8 +55,14 @@ def is_greeting(message: str, umbral: float = 0.70) -> bool:
     # Proceso semántico (No consume tokens)
     try:
         from sentence_transformers import util
-        # Limitamos la longitud por seguridad (un saludo normal no tiene 50 palabras)
-        if len(message.split()) > 10:
+        # Limitamos la longitud por seguridad. Un saludo no suele tener más de 6 palabras.
+        # Esto evita atrapar consultas como "hola como estas dime el precio de x"
+        if len(message.split()) > 6:
+            return False
+            
+        # Filtro de palabras clave de acción que indican una consulta real
+        palabras_accion = ["precio", "cuanto", "dime", "quiero", "necesito", "ayuda", "info", "informacion", "comprar", "venden", "hago"]
+        if any(p in message.lower() for p in palabras_accion):
             return False
             
         mensaje_vector = model.encode(message)
@@ -64,4 +72,38 @@ def is_greeting(message: str, umbral: float = 0.70) -> bool:
         return similitud > umbral
     except Exception as e:
         logger.error(f"Error procesando similitud: {e}")
+        return False
+
+def is_farewell(message: str, umbral: float = 0.70) -> bool:
+    """Verifica si el mensaje es semánticamente una despedida o agradecimiento."""
+    model = get_model()
+    
+    if not model:
+        despedidas_simples = {"chau", "adios", "nos vemos", "saludos", "gracias", "chau gracias", "muchas gracias"}
+        msg_limpio = message.lower().strip()
+        for char in ['¿', '?', '¡', '!', ',', '.']:
+            msg_limpio = msg_limpio.replace(char, '')
+        msg_limpio = msg_limpio.strip()
+        
+        palabras = msg_limpio.split()
+        if len(palabras) <= 3 and any(p in despedidas_simples for p in palabras) or msg_limpio in despedidas_simples:
+            return True
+        return False
+
+    try:
+        from sentence_transformers import util
+        if len(message.split()) > 6:
+            return False
+            
+        palabras_accion = ["precio", "cuanto", "dime", "quiero", "necesito", "ayuda", "info", "informacion", "comprar", "venden", "hago"]
+        if any(p in message.lower() for p in palabras_accion):
+            return False
+            
+        mensaje_vector = model.encode(message)
+        similitud = util.cos_sim(_despedida_vector, mensaje_vector).item()
+        
+        logger.info(f"Similitud semántica de '{message}' con despedida base: {similitud:.2f}")
+        return similitud > umbral
+    except Exception as e:
+        logger.error(f"Error procesando similitud (despedida): {e}")
         return False

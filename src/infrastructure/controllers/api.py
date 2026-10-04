@@ -19,29 +19,43 @@ async def get_tools():
     tools = get_discovered_tools()
     return {"tools": list(tools.values())}
 
-from src.application.semantic_cache import is_greeting
+from src.application.semantic_cache import is_greeting, is_farewell
 import random
+
+from src.application.groq_service import generate_ai_response, is_prompt_safe
 
 @router.post("/api/v1/chat")
 async def chat(request: ChatRequest):
-    # 1. Enrutamiento de Intenciones (Ahorro de tokens)
     if is_greeting(request.message):
-        respuestas_saludo = [
-            "¡Hola! Soy el asistente de Nefetech. ¿En qué puedo ayudarte?",
-            "¡Qué tal! ¿Cómo puedo asistirte hoy?",
-            "¡Hola! Estoy aquí para resolver tus dudas sobre Nefetech."
-        ]
         return {
-            "reply": random.choice(respuestas_saludo),
+            "reply": "Hola, como estas?, estoy para ayudarte, dime que necesitas",
+            "tools_available": [],
+            "cached": True
+        }
+        
+    if is_farewell(request.message):
+        return {
+            "reply": "¡De nada! Ha sido un placer ayudarte. Nos vemos pronto.",
             "tools_available": [],
             "cached": True
         }
 
-    # 2. Lógica normal con LLM (Consume tokens)
-    # TODO: Llamar al caso de uso (Application Layer) que orquesta Mongo, Redis y LangChain
+    # 2. Guardia de Seguridad Semántica (Prompt Guard)
+    if not is_prompt_safe(request.message):
+        return {
+            "reply": "He detectado un posible intento de evadir las directivas de seguridad (Jailbreak / Prompt Injection). No puedo responder a esta solicitud.",
+            "tools_available": [],
+            "cached": False,
+            "security_flag": True
+        }
+
+    # 3. Lógica normal con LLM (Consume tokens en Groq)
     tools = get_discovered_tools()
+    ai_reply = generate_ai_response(request.message)
+    
     return {
-        "reply": f"Mensaje recibido: '{request.message}'. Actualmente conozco {len(tools)} herramientas. Pronto procesaré esto con LLM.",
+        "reply": ai_reply,
         "tools_available": [t["description"] for t in tools.values()],
-        "cached": False
+        "cached": False,
+        "security_flag": False
     }
