@@ -19,11 +19,29 @@ async def get_tools():
     tools = get_discovered_tools()
     return {"tools": list(tools.values())}
 
+from src.application.semantic_cache import is_greeting
+import random
+
 @router.post("/api/v1/chat")
 async def chat(request: ChatRequest):
+    # 1. Enrutamiento de Intenciones (Ahorro de tokens)
+    if is_greeting(request.message):
+        respuestas_saludo = [
+            "¡Hola! Soy el asistente de Nefetech. ¿En qué puedo ayudarte?",
+            "¡Qué tal! ¿Cómo puedo asistirte hoy?",
+            "¡Hola! Estoy aquí para resolver tus dudas sobre Nefetech."
+        ]
+        return {
+            "reply": random.choice(respuestas_saludo),
+            "tools_available": [],
+            "cached": True
+        }
+
+    # 2. Lógica normal con LLM (Consume tokens)
     # TODO: Llamar al caso de uso (Application Layer) que orquesta Mongo, Redis y LangChain
     tools = get_discovered_tools()
     return {
-        "reply": f"Mensaje recibido: '{request.message}'. Actualmente conozco {len(tools)} herramientas.",
-        "tools_available": [t["description"] for t in tools.values()]
+        "reply": f"Mensaje recibido: '{request.message}'. Actualmente conozco {len(tools)} herramientas. Pronto procesaré esto con LLM.",
+        "tools_available": [t["description"] for t in tools.values()],
+        "cached": False
     }
